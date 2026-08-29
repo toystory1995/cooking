@@ -1,0 +1,66 @@
+name: Weekly recipe
+
+on:
+  schedule:
+    # 07:00 UTC every Friday. GitHub's scheduler can lag by a few minutes.
+    - cron: "0 7 * * 5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only — do not send and do not update the log"
+        type: boolean
+        default: false
+      slug:
+        description: "Force a specific recipe (optional)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-recipe
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check the library parses
+        run: python send_recipe.py validate
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -t . -q
+
+      - name: Preview this week's recipe
+        run: python send_recipe.py send --dry-run ${{ inputs.slug && format('--slug {0}', inputs.slug) || '' }}
+
+      - name: Send the recipe
+        if: ${{ inputs.dry_run != true }}
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python send_recipe.py send ${{ inputs.slug && format('--slug {0}', inputs.slug) || '' }}
+
+      - name: Commit the cooking log
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if git diff --quiet -- state/history.json; then
+            echo "history unchanged"
+            exit 0
+          fi
+          git config user.name "weekly-recipe-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/history.json
+          git commit -m "Log this week's recipe"
+          git push

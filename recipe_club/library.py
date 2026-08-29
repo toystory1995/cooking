@@ -30,6 +30,31 @@ from pathlib import Path
 from typing import Iterable
 
 VALID_SEASONS = {"spring", "summer", "autumn", "winter", "any"}
+
+# Disciplines, not cuisines. A cook who has covered all of these has range;
+# one who has cooked twenty French mains has not.
+VALID_TRACKS = (
+    "foundations",
+    "knife-skills",
+    "eggs-dairy",
+    "stocks-soups",
+    "sauces",
+    "meat",
+    "butchery",
+    "fish",
+    "pasta",
+    "dumplings",
+    "rice-grains",
+    "bread",
+    "pastry",
+    "desserts",
+    "fermentation",
+    "vegetables",
+    "offal",
+    "fire",
+    "modern",
+    "challenge",
+)
 MIN_LEVEL = 1
 MAX_LEVEL = 5
 
@@ -56,6 +81,7 @@ class Recipe:
     cuisine: str
     body: str
     path: Path
+    track: str = "foundations"
     seasons: tuple[str, ...] = ("any",)
     skills: tuple[str, ...] = ()
     equipment: tuple[str, ...] = ()
@@ -157,6 +183,11 @@ def parse_recipe(text: str, *, slug: str, path: Path | None = None) -> Recipe:
     if unknown:
         raise RecipeError(f"{origin}: unknown season(s) {', '.join(unknown)}")
 
+    track = str(data.get("track", "foundations")).strip()
+    if track not in VALID_TRACKS:
+        raise RecipeError(
+            f"{origin}: unknown track {track!r}. One of: {', '.join(VALID_TRACKS)}")
+
     return Recipe(
         slug=slug,
         title=str(_require(data, "title", origin)),
@@ -164,6 +195,7 @@ def parse_recipe(text: str, *, slug: str, path: Path | None = None) -> Recipe:
         minutes=_as_int(_require(data, "minutes", origin), "minutes", origin),
         serves=_as_int(data.get("serves", 2), "serves", origin),
         cuisine=str(data.get("cuisine", "Unfiled")),
+        track=track,
         seasons=seasons,
         skills=_as_tuple(data.get("skills", [])),
         equipment=_as_tuple(data.get("equipment", [])),
@@ -197,3 +229,9 @@ def load_library(directory: Path) -> list[Recipe]:
 
 def all_skills(recipes: Iterable[Recipe]) -> list[str]:
     return sorted({skill for recipe in recipes for skill in recipe.skills})
+
+
+def tracks_in(recipes: Iterable[Recipe]) -> list[str]:
+    """Tracks the library actually covers, in the canonical order."""
+    present = {recipe.track for recipe in recipes}
+    return [track for track in VALID_TRACKS if track in present]

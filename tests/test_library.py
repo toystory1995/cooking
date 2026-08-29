@@ -1,8 +1,9 @@
 import unittest
 from pathlib import Path
 
-from recipe_club.library import (MAX_LEVEL, RecipeError, all_skills, load_library,
-                                 parse_frontmatter, parse_recipe, split_frontmatter)
+from recipe_club.library import (MAX_LEVEL, VALID_TRACKS, RecipeError, all_skills,
+                                 load_library, parse_frontmatter, parse_recipe,
+                                 split_frontmatter, tracks_in)
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLE = """---
@@ -11,6 +12,7 @@ level: 2
 minutes: 30
 serves: 4
 cuisine: Italian
+track: pasta
 seasons:
   - summer
   - autumn
@@ -71,10 +73,19 @@ class ParseRecipeTests(unittest.TestCase):
         self.assertEqual(recipe.skills, ("searing", "deglazing"))
         self.assertEqual(recipe.seasons, ("summer", "autumn"))
 
+    def test_track(self):
+        self.assertEqual(parse_recipe(SAMPLE, slug="test-dish").track, "pasta")
+
+    def test_unknown_track(self):
+        with self.assertRaises(RecipeError):
+            parse_recipe("---\ntitle: A\nlevel: 1\nminutes: 5\ntrack: baking\n---\n\nb\n",
+                         slug="a")
+
     def test_defaults(self):
         recipe = parse_recipe(
             "---\ntitle: A\nlevel: 1\nminutes: 5\n---\n\nbody\n", slug="a")
         self.assertEqual(recipe.seasons, ("any",))
+        self.assertEqual(recipe.track, "foundations")
         self.assertEqual(recipe.serves, 2)
         self.assertEqual(recipe.skills, ())
 
@@ -116,7 +127,7 @@ class RealLibraryTests(unittest.TestCase):
         cls.recipes = load_library(ROOT / "recipes")
 
     def test_every_recipe_parses(self):
-        self.assertGreaterEqual(len(self.recipes), 20)
+        self.assertGreaterEqual(len(self.recipes), 60)
 
     def test_every_level_is_represented(self):
         levels = {recipe.level for recipe in self.recipes}
@@ -134,6 +145,25 @@ class RealLibraryTests(unittest.TestCase):
 
     def test_skills_are_catalogued(self):
         self.assertGreater(len(all_skills(self.recipes)), 30)
+
+    def test_tracks_are_valid_and_broadly_covered(self):
+        covered = tracks_in(self.recipes)
+        self.assertGreaterEqual(len(covered), 15)
+        self.assertTrue(set(covered) <= set(VALID_TRACKS))
+
+    def test_no_track_dominates_the_library(self):
+        counts = {}
+        for recipe in self.recipes:
+            counts[recipe.track] = counts.get(recipe.track, 0) + 1
+        biggest, count = max(counts.items(), key=lambda item: item[1])
+        self.assertLessEqual(count / len(self.recipes), 0.15,
+                             f"{biggest} is {count}/{len(self.recipes)} of the library")
+
+    def test_cuisines_are_not_all_european(self):
+        european = {"French", "Italian", "British", "Modern European", "Spanish",
+                    "Polish", "Nordic", "Mediterranean", "Modern", "Foundations", "Yours"}
+        other = [r for r in self.recipes if r.cuisine not in european]
+        self.assertGreaterEqual(len(other), 15)
 
     def test_exactly_one_capstone(self):
         capstones = [r for r in self.recipes if "capstone" in r.tags]

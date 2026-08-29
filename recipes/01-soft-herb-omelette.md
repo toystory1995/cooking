@@ -4,6 +4,7 @@ level: 1
 minutes: 15
 serves: 1
 cuisine: French
+track: eggs-dairy
 seasons:
   - any
 skills:

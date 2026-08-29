@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .history import History
-from .library import MAX_LEVEL, RecipeError, all_skills, load_library
+from .library import MAX_LEVEL, VALID_TRACKS, RecipeError, all_skills, load_library, tracks_in
 from .mailer import MailConfig, MailConfigError, build_message, send_message
 from .render import render_html, render_text, subject_line
-from .selector import Pick, RECIPES_PER_LEVEL, choose_recipe, season_for, target_level
+from .selector import Pick, choose_recipe, pace_for, season_for, target_level
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RECIPES = ROOT / "recipes"
@@ -54,11 +54,22 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("--slug", default=None, help="force a specific recipe instead of choosing one")
     send.add_argument("--html-out", type=Path, default=None, metavar="FILE",
                       help="also write the HTML email to this file")
+    send.add_argument("--track", default=None, metavar="TRACK",
+                      help="pick from one discipline only, e.g. dumplings, pastry, fish")
 
     show = sub.add_parser("show", parents=[common], help="print one recipe")
     show.add_argument("slug")
 
-    sub.add_parser("list", parents=[common], help="list the library")
+    listing = sub.add_parser("list", parents=[common], help="list the library")
+    listing.add_argument("--track", default=None, metavar="TRACK",
+                         help="only show one track")
+
+    plan = sub.add_parser("plan", parents=[common],
+                          help="show the recipes the next few Fridays would send")
+    plan.add_argument("weeks", nargs="?", type=int, default=12,
+                      help="how many weeks to project (default 12)")
+    plan.add_argument("--date", type=_parse_date, default=None, metavar="YYYY-MM-DD",
+                      help="start from this date instead of today")
     sub.add_parser("stats", parents=[common], help="show progress through the library")
     sub.add_parser("validate", parents=[common], help="parse every recipe and report problems")
 
@@ -66,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # Options that take a value, so we can tell a command name from an option's argument.
-_VALUE_OPTIONS = {"--recipes", "--history", "--date", "--slug", "--html-out"}
+_VALUE_OPTIONS = {"--recipes", "--history", "--date", "--slug", "--html-out", "--track"}
 
 
 def inject_default_command(argv: list[str]) -> list[str]:
@@ -87,6 +98,17 @@ def inject_default_command(argv: list[str]) -> list[str]:
     return ["send", *argv]
 
 
+def _check_track(args, recipes) -> str | None:
+    track = getattr(args, "track", None)
+    if track is None:
+        return None
+    available = tracks_in(recipes)
+    if track not in available:
+        known = ", ".join(available)
+        raise SystemExit(f"no recipes on the {track!r} track. Available: {known}")
+    return track
+
+
 def _pick_for(args, recipes, history) -> Pick:
     today = getattr(args, "date", None) or date.today()
     if args.slug:
@@ -101,7 +123,7 @@ def _pick_for(args, recipes, history) -> Pick:
             week_number=history.count + 1,
             reasons=("you asked for this one",),
         )
-    return choose_recipe(recipes, history, today)
+    return choose_recipe(recipes, history, today, track=_check_track(args, recipes))
 
 
 def cmd_send(args, recipes, history) -> int:
@@ -153,29 +175,63 @@ def cmd_show(args, recipes, history) -> int:
 
 
 def cmd_list(args, recipes, history) -> int:
+    track = _check_track(args, recipes)
+    shown = [r for r in recipes if track is None or r.track == track]
     done = history.sent_slugs
-    print(f"{'':2} {'level':>5}  {'min':>4}  {'slug':<34} title")
-    for recipe in sorted(recipes, key=lambda r: (r.level, r.slug)):
+    print(f"{'':2} {'lvl':>3}  {'min':>4}  {'track':<14} {'slug':<38} title")
+    for recipe in sorted(shown, key=lambda r: (r.level, r.slug)):
         mark = "✓" if recipe.slug in done else " "
-        print(f"{mark:2} {recipe.level:>5}  {recipe.minutes:>4}  {recipe.slug:<34} {recipe.title}")
-    print(f"\n{len(done)}/{len(recipes)} cooked")
+        print(f"{mark:2} {recipe.level:>3}  {recipe.minutes:>4}  {recipe.track:<14} "
+              f"{recipe.slug:<38} {recipe.title}")
+    cooked = len(done & {r.slug for r in shown})
+    print(f"\n{cooked}/{len(shown)} cooked" + (f" on the {track} track" if track else ""))
+    return 0
+
+
+def cmd_plan(args, recipes, history) -> int:
+    """Project the next few weeks without sending or recording anything."""
+    today = args.date or date.today()
+    # Friday of the current week, so the plan lines up with the schedule.
+    friday = today + timedelta(days=(4 - today.weekday()) % 7)
+    projected = History(entries=list(history.entries))
+
+    print(f"{'week':>4}  {'date':<12} {'lvl':>3}  {'track':<14} title")
+    for _ in range(max(1, args.weeks)):
+        pick = choose_recipe(recipes, projected, friday)
+        print(f"{pick.week_number:>4}  {friday.isoformat():<12} {pick.recipe.level:>3}  "
+              f"{pick.recipe.track:<14} {pick.recipe.title}")
+        projected.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
+                         pick.recipe.skills, friday)
+        friday += timedelta(days=7)
+    print("\nProjected from the current log — sending or logging a recipe reshuffles it.")
     return 0
 
 
 def cmd_stats(args, recipes, history) -> int:
     total = len(recipes)
     done = history.count
-    level = target_level(done)
+    pace = pace_for(total)
+    level = target_level(done, total)
     filled = round(20 * min(done / total, 1.0)) if total else 0
     print(f"Cooked      {done}/{total}  [{'█' * filled}{'·' * (20 - filled)}]")
-    print(f"Level       {level}/{MAX_LEVEL} (next level after "
-          f"{RECIPES_PER_LEVEL - done % RECIPES_PER_LEVEL} more)")
+    remaining = pace - done % pace
+    at_top = level >= MAX_LEVEL
+    print(f"Level       {level}/{MAX_LEVEL}" +
+          ("" if at_top else f" (next level after {remaining} more)"))
     print(f"Season      {season_for(getattr(args, 'date', None) or date.today())}")
 
     counts = history.levels_cooked()
     if counts:
         breakdown = "  ".join(f"L{lvl}×{counts[lvl]}" for lvl in sorted(counts))
         print(f"Breakdown   {breakdown}")
+
+    by_slug = {r.slug: r for r in recipes}
+    cooked_tracks = {by_slug[e.slug].track for e in history.entries if e.slug in by_slug}
+    catalogue_tracks = tracks_in(recipes)
+    print(f"Tracks      {len(cooked_tracks)}/{len(catalogue_tracks)}")
+    untouched = [t for t in catalogue_tracks if t not in cooked_tracks]
+    if untouched:
+        print("  untried:  " + ", ".join(untouched))
 
     known = history.skills_learned()
     catalogue = all_skills(recipes)
@@ -211,6 +267,7 @@ COMMANDS = {
     "send": cmd_send,
     "show": cmd_show,
     "list": cmd_list,
+    "plan": cmd_plan,
     "stats": cmd_stats,
     "validate": cmd_validate,
 }

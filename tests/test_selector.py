@@ -4,15 +4,17 @@ from pathlib import Path
 
 from recipe_club.history import History
 from recipe_club.library import load_library, parse_recipe
-from recipe_club.selector import choose_recipe, season_for, target_level
+from recipe_club.selector import (choose_recipe, eligible_at, pace_for, season_for,
+                                  target_level)
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def make(slug, level=1, skills=(), seasons=("any",), cuisine="Test", tags=()):
+def make(slug, level=1, skills=(), seasons=("any",), cuisine="Test", tags=(),
+         track="foundations"):
     lines = [
         "---", f"title: {slug.title()}", f"level: {level}", "minutes: 30",
-        f"cuisine: {cuisine}", "seasons:",
+        f"cuisine: {cuisine}", f"track: {track}", "seasons:",
     ]
     lines += [f"  - {s}" for s in seasons]
     if skills:
@@ -40,6 +42,30 @@ class TargetLevelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             target_level(1, per_level=0)
 
+    def test_pace_scales_with_the_library(self):
+        self.assertEqual(pace_for(26), 4)
+        self.assertEqual(pace_for(71), 11)
+        self.assertEqual(pace_for(6), 4)  # never faster than every four weeks
+
+    def test_library_size_sets_the_pace(self):
+        self.assertEqual(target_level(10, 71), 1)
+        self.assertEqual(target_level(11, 71), 2)
+        self.assertEqual(target_level(55, 71), 6 - 1)
+
+
+class EligibilityTests(unittest.TestCase):
+    def test_ceiling_excludes_harder_recipes(self):
+        recipes = [make("easy", level=1), make("hard", level=4)]
+        self.assertEqual([r.slug for r in eligible_at(recipes, 2)], ["easy"])
+
+    def test_everything_at_or_below_stays_eligible(self):
+        recipes = [make("a", level=1), make("b", level=2), make("c", level=5)]
+        self.assertEqual({r.slug for r in eligible_at(recipes, 3)}, {"a", "b"})
+
+    def test_falls_back_to_the_easiest_when_nothing_is_in_reach(self):
+        recipes = [make("hard", level=4), make("harder", level=5)]
+        self.assertEqual([r.slug for r in eligible_at(recipes, 2)], ["hard"])
+
 
 class SeasonTests(unittest.TestCase):
     def test_months_map_to_seasons(self):
@@ -57,18 +83,36 @@ class ChooseRecipeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             choose_recipe([], History.empty(), self.today)
 
-    def test_prefers_the_current_level(self):
+    def test_never_picks_above_the_ceiling(self):
         recipes = [make("easy", level=1), make("hard", level=5)]
         pick = choose_recipe(recipes, History.empty(), self.today)
         self.assertEqual(pick.recipe.slug, "easy")
+
+    def test_ceiling_holds_even_when_the_harder_recipe_is_tempting(self):
+        # New track, new skills, in season -- and still out of reach.
+        recipes = [
+            make("plain", level=1, track="foundations"),
+            make("shiny", level=4, track="pastry", skills=("a", "b", "c"),
+                 seasons=("autumn",)),
+        ]
+        pick = choose_recipe(recipes, History.empty(), date(2026, 10, 2))
+        self.assertEqual(pick.recipe.slug, "plain")
 
     def test_level_climbs_with_experience(self):
         recipes = [make("easy", level=1), make("mid", level=3)]
         history = History.empty()
         for index in range(10):
             history.record(f"other-{index}", "x", 1, (), self.today)
-        pick = choose_recipe(recipes, history, self.today)
+        pick = choose_recipe(recipes, history, self.today, per_level=5)
         self.assertEqual(pick.recipe.slug, "mid")
+
+    def test_works_near_the_ceiling_not_below_it(self):
+        recipes = [make("easy", level=1, track="pasta"), make("stretch", level=3, track="fish")]
+        history = History.empty()
+        for index in range(10):
+            history.record(f"other-{index}", "x", 1, (), self.today)
+        pick = choose_recipe(recipes, history, self.today, per_level=5)
+        self.assertEqual(pick.recipe.slug, "stretch")
 
     def test_does_not_repeat_until_library_is_exhausted(self):
         recipes = [make(f"r{i}", level=1) for i in range(6)]
@@ -91,6 +135,50 @@ class ChooseRecipeTests(unittest.TestCase):
         pick = choose_recipe(recipes, history, self.today + timedelta(days=14))
         self.assertEqual(pick.recipe.slug, "a")  # least recently cooked
         self.assertIn("second pass", " ".join(pick.reasons))
+
+    def test_rotates_away_from_the_last_track(self):
+        recipes = [make(f"d{i}", track="dumplings") for i in range(3)]
+        recipes += [make(f"p{i}", track="pastry") for i in range(3)]
+        history = History.empty()
+        history.record("d0", "D0", 1, (), self.today)
+        pick = choose_recipe(recipes, history, self.today + timedelta(days=7))
+        self.assertEqual(pick.recipe.track, "pastry")
+
+    def test_no_track_runs_twice_across_the_whole_library(self):
+        recipes = load_library(ROOT / "recipes")
+        history = History.empty()
+        day = self.today
+        picked = []
+        for _ in range(len(recipes)):
+            pick = choose_recipe(recipes, history, day)
+            picked.append(pick.recipe.track)
+            history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
+                           pick.recipe.skills, day)
+            day += timedelta(days=7)
+        runs = [i for i in range(1, len(picked)) if picked[i] == picked[i - 1]]
+        self.assertEqual(runs, [], f"track repeated back to back at weeks {runs}")
+
+    def test_no_track_dominates_the_first_year(self):
+        recipes = load_library(ROOT / "recipes")
+        history = History.empty()
+        day = self.today
+        counts = {}
+        for _ in range(52):
+            pick = choose_recipe(recipes, history, day)
+            counts[pick.recipe.track] = counts.get(pick.recipe.track, 0) + 1
+            history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
+                           pick.recipe.skills, day)
+            day += timedelta(days=7)
+        self.assertLessEqual(max(counts.values()), 8)
+
+    def test_can_be_forced_to_one_track(self):
+        recipes = load_library(ROOT / "recipes")
+        pick = choose_recipe(recipes, History.empty(), self.today, track="dumplings")
+        self.assertEqual(pick.recipe.track, "dumplings")
+
+    def test_unknown_track_is_an_error(self):
+        with self.assertRaises(ValueError):
+            choose_recipe([make("a")], History.empty(), self.today, track="nope")
 
     def test_prefers_unseen_skills(self):
         recipes = [
@@ -142,19 +230,33 @@ class FullLibraryProgressionTests(unittest.TestCase):
             day += timedelta(days=7)
         self.assertEqual(len(history.sent_slugs), len(recipes))
 
-    def test_difficulty_trends_upward(self):
+    def test_difficulty_climbs_and_never_jumps_the_ceiling(self):
         recipes = load_library(ROOT / "recipes")
         history = History.empty()
         day = date(2026, 9, 4)
         levels = []
-        for _ in range(15):
+        for _ in range(44):
             pick = choose_recipe(recipes, history, day)
+            self.assertLessEqual(pick.recipe.level, pick.target_level)
             levels.append(pick.recipe.level)
             history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
                            pick.recipe.skills, day)
             day += timedelta(days=7)
-        self.assertLessEqual(max(levels[:5]), 2)
-        self.assertGreaterEqual(sum(levels[10:]) / 5, sum(levels[:5]) / 5 + 1)
+        self.assertEqual(set(levels[:11]), {1})
+        self.assertGreaterEqual(sum(levels[33:]) / 11, 3.5)
+
+    def test_every_track_is_reached_within_the_first_half(self):
+        recipes = load_library(ROOT / "recipes")
+        history = History.empty()
+        day = date(2026, 9, 4)
+        seen = set()
+        for _ in range(36):
+            pick = choose_recipe(recipes, history, day)
+            seen.add(pick.recipe.track)
+            history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
+                           pick.recipe.skills, day)
+            day += timedelta(days=7)
+        self.assertEqual(len(seen), len({r.track for r in recipes}))
 
     def test_capstone_is_the_last_recipe_sent(self):
         recipes = load_library(ROOT / "recipes")

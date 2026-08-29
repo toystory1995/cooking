@@ -212,6 +212,40 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("no recipe", err)
 
+    def test_list_can_filter_by_track(self):
+        code, out, _ = self.run_cli("list", "--track", "dumplings")
+        self.assertEqual(code, 0)
+        self.assertIn("on the dumplings track", out)
+        self.assertNotIn("Croissants", out)
+
+    def test_unknown_track_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli("list", "--track", "baking")
+
+    def test_send_can_be_forced_to_a_track(self):
+        code, out, _ = self.run_cli("send", "--dry-run", "--track", "pastry")
+        self.assertEqual(code, 0)
+        self.assertIn("Week 1", out)
+
+    def test_plan_projects_without_recording(self):
+        path = Path(self.tmp) / "history.json"
+        code, out, _ = self.run_cli("plan", "6", "--date", "2026-09-01", history=path)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("2026-"), 6)
+        self.assertIn("2026-09-04", out)  # projected onto Fridays
+        self.assertFalse(path.exists())
+
+    def test_plan_defaults_to_twelve_weeks(self):
+        code, out, _ = self.run_cli("plan")
+        self.assertEqual(code, 0)
+        self.assertEqual(len([ln for ln in out.splitlines() if ln.strip().startswith(("1", "2", "3", "4", "5", "6", "7", "8", "9"))]), 12)
+
+    def test_stats_shows_track_coverage(self):
+        code, out, _ = self.run_cli("stats")
+        self.assertEqual(code, 0)
+        self.assertIn("Tracks", out)
+        self.assertIn("untried", out)
+
     def test_stats_and_validate(self):
         code, out, _ = self.run_cli("stats")
         self.assertEqual(code, 0)
@@ -235,7 +269,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("<!doctype html>", target.read_text())
 
     def test_forced_slug(self):
-        code, out, _ = self.run_cli("send", "--dry-run", "--slug", "23-croissants")
+        code, out, _ = self.run_cli("send", "--dry-run", "--slug", "63-croissants")
         self.assertEqual(code, 0)
         self.assertIn("Croissants", out)
 

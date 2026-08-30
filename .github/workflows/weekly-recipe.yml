@@ -1,0 +1,111 @@
+name: Weekly recipe
+
+on:
+  schedule:
+    # 07:00 UTC every Friday. GitHub's scheduler can lag by a few minutes.
+    - cron: "0 7 * * 5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only — do not deliver and do not update the log"
+        type: boolean
+        default: false
+      slug:
+        description: "Force a specific recipe (optional)"
+        type: string
+        default: ""
+      track:
+        description: "Pick from one track only, e.g. dumplings (optional)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: weekly-recipe
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check the library parses
+        run: python send_recipe.py validate
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -t . -q
+
+      # Email is optional. Without SMTP_HOST the run still delivers the recipe
+      # as a GitHub issue, which notifies you by email anyway.
+      - name: Decide how to deliver
+        id: mode
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+        run: |
+          if [ -n "$SMTP_HOST" ]; then
+            echo "email=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "email=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No SMTP_HOST secret set — delivering by GitHub issue only."
+          fi
+
+      - name: Build the flags for this run
+        id: flags
+        run: |
+          FLAGS=""
+          [ -n "${{ inputs.slug }}" ]  && FLAGS="$FLAGS --slug ${{ inputs.slug }}"
+          [ -n "${{ inputs.track }}" ] && FLAGS="$FLAGS --track ${{ inputs.track }}"
+          [ "${{ steps.mode.outputs.email }}" = "false" ] && FLAGS="$FLAGS --no-email"
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Preview this week's recipe
+        run: python send_recipe.py send --dry-run ${{ steps.flags.outputs.flags }}
+
+      - name: Deliver
+        if: ${{ inputs.dry_run != true }}
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: |
+          python send_recipe.py send \
+            --markdown-out out/body.md \
+            --subject-out out/subject.txt \
+            ${{ steps.flags.outputs.flags }}
+
+      - name: Open the recipe as an issue
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "$(cat out/subject.txt)" \
+            --body-file out/body.md \
+            --label "weekly-recipe" 2>/dev/null \
+          || gh issue create \
+            --title "$(cat out/subject.txt)" \
+            --body-file out/body.md
+
+      - name: Commit the cooking log
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if git diff --quiet -- state/history.json; then
+            echo "history unchanged"
+            exit 0
+          fi
+          git config user.name "weekly-recipe-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/history.json
+          git commit -m "Log this week's recipe"
+          git push

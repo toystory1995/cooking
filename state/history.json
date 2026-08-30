@@ -11,6 +11,17 @@
         "balancing acidity",
         "knife work"
       ]
+    },
+    {
+      "date": "2026-08-30",
+      "slug": "11-ceviche",
+      "title": "Ceviche with Leche de Tigre",
+      "level": 1,
+      "skills": [
+        "acid curing",
+        "fish quality judgement",
+        "dicing to size"
+      ]
     }
   ]
 }

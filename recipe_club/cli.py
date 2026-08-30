@@ -10,7 +10,7 @@ from pathlib import Path
 from .history import History
 from .library import MAX_LEVEL, VALID_TRACKS, RecipeError, all_skills, load_library, tracks_in
 from .mailer import MailConfig, MailConfigError, build_message, send_message
-from .render import render_html, render_text, subject_line
+from .render import render_html, render_markdown, render_text, subject_line
 from .selector import Pick, choose_recipe, pace_for, season_for, target_level
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="also write the HTML email to this file")
     send.add_argument("--track", default=None, metavar="TRACK",
                       help="pick from one discipline only, e.g. dumplings, pastry, fish")
+    send.add_argument("--markdown-out", type=Path, default=None, metavar="FILE",
+                      help="write the recipe as Markdown (for GitHub issue delivery)")
+    send.add_argument("--subject-out", type=Path, default=None, metavar="FILE",
+                      help="write just the subject line to this file")
+    send.add_argument("--no-email", action="store_true",
+                      help="skip the email entirely — for delivery that needs no SMTP")
 
     show = sub.add_parser("show", parents=[common], help="print one recipe")
     show.add_argument("slug")
@@ -77,7 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # Options that take a value, so we can tell a command name from an option's argument.
-_VALUE_OPTIONS = {"--recipes", "--history", "--date", "--slug", "--html-out", "--track"}
+_VALUE_OPTIONS = {"--recipes", "--history", "--date", "--slug", "--html-out", "--track",
+                  "--markdown-out", "--subject-out"}
 
 
 def inject_default_command(argv: list[str]) -> list[str]:
@@ -133,25 +140,34 @@ def cmd_send(args, recipes, history) -> int:
     text = render_text(pick, history, len(recipes))
     html_body = render_html(pick, history, len(recipes))
 
-    if args.html_out:
-        args.html_out.parent.mkdir(parents=True, exist_ok=True)
-        args.html_out.write_text(html_body, encoding="utf-8")
-        print(f"HTML written to {args.html_out}", file=sys.stderr)
+    for target, content, label in (
+        (args.html_out, html_body, "HTML"),
+        (args.markdown_out, render_markdown(pick, history, len(recipes)), "Markdown"),
+        (args.subject_out, subject + "\n", "Subject"),
+    ):
+        if target:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            print(f"{label} written to {target}", file=sys.stderr)
 
     if args.dry_run:
         print(text)
         print(f"\n[dry run] would send to MAIL_TO with subject: {subject}", file=sys.stderr)
         return 0
 
-    try:
-        config = MailConfig.from_env()
-    except MailConfigError as error:
-        print(f"error: {error}", file=sys.stderr)
-        print("hint: run with --dry-run to preview without sending.", file=sys.stderr)
-        return 2
+    if args.no_email:
+        print(f"picked '{pick.recipe.title}' (no email sent)")
+    else:
+        try:
+            config = MailConfig.from_env()
+        except MailConfigError as error:
+            print(f"error: {error}", file=sys.stderr)
+            print("hint: --dry-run previews without sending, and --no-email delivers "
+                  "without SMTP at all.", file=sys.stderr)
+            return 2
 
-    send_message(config, build_message(config, subject, text, html_body))
-    print(f"sent '{pick.recipe.title}' to {', '.join(config.recipients)}")
+        send_message(config, build_message(config, subject, text, html_body))
+        print(f"sent '{pick.recipe.title}' to {', '.join(config.recipients)}")
 
     if not args.no_record:
         history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level, pick.recipe.skills, today)

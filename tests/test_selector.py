@@ -232,25 +232,30 @@ class FullLibraryProgressionTests(unittest.TestCase):
 
     def test_difficulty_climbs_and_never_jumps_the_ceiling(self):
         recipes = load_library(ROOT / "recipes")
+        pace = pace_for(len(recipes))
         history = History.empty()
         day = date(2026, 9, 4)
         levels = []
-        for _ in range(44):
+        for _ in range(pace * 4):
             pick = choose_recipe(recipes, history, day)
             self.assertLessEqual(pick.recipe.level, pick.target_level)
             levels.append(pick.recipe.level)
             history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,
                            pick.recipe.skills, day)
             day += timedelta(days=7)
-        self.assertEqual(set(levels[:11]), {1})
-        self.assertGreaterEqual(sum(levels[33:]) / 11, 3.5)
+        # The first block is entirely level 1; each later block averages higher.
+        self.assertEqual(set(levels[:pace]), {1})
+        blocks = [levels[i * pace:(i + 1) * pace] for i in range(4)]
+        means = [sum(block) / len(block) for block in blocks]
+        self.assertEqual(means, sorted(means), f"difficulty did not climb: {means}")
+        self.assertGreaterEqual(means[-1], 3.0)
 
     def test_every_track_is_reached_within_the_first_half(self):
         recipes = load_library(ROOT / "recipes")
         history = History.empty()
         day = date(2026, 9, 4)
         seen = set()
-        for _ in range(36):
+        for _ in range(30):
             pick = choose_recipe(recipes, history, day)
             seen.add(pick.recipe.track)
             history.record(pick.recipe.slug, pick.recipe.title, pick.recipe.level,

@@ -65,6 +65,33 @@ def render_text(pick: Pick, history: History, total_recipes: int) -> str:
     return "\n".join(lines)
 
 
+def render_markdown(pick: Pick, history: History, total_recipes: int) -> str:
+    """The recipe as a Markdown document -- used for GitHub issue delivery."""
+    recipe = pick.recipe
+    lines = [f"**Week {pick.week_number} · Level {recipe.level} — {recipe.level_name}**", ""]
+    lines += [f"| | |", "|---|---|"]
+    lines += [f"| {label} | {value} |" for label, value in _facts(recipe)]
+    lines.append("")
+    if pick.reasons:
+        lines += [f"> **Why this one:** {'; '.join(pick.reasons)}.", ""]
+    lines.append(recipe.body)
+    lines += ["", "---", ""]
+    lines.append(f"`{_progress_line(history, total_recipes)}`")
+    if pick.new_skills:
+        lines.append("")
+        lines.append("**New skills this week:** " + ", ".join(pick.new_skills))
+    known = sorted(history.skills_learned())
+    if known:
+        lines.append("")
+        lines.append(f"<details><summary>Skills in the bank ({len(known)})</summary>\n\n"
+                     + ", ".join(known) + "\n\n</details>")
+    if recipe.source:
+        lines += ["", f"*Inspired by: {recipe.source}*"]
+    lines += ["", "Cook it, photograph it, write one line about what went wrong. "
+                  "That is the whole trick."]
+    return "\n".join(lines)
+
+
 _INLINE = (
     (re.compile(r"\*\*(.+?)\*\*"), r"<strong>\1</strong>"),
     (re.compile(r"(?<![\w*])\*([^*]+?)\*(?![\w*])"), r"<em>\1</em>"),

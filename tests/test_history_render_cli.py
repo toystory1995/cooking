@@ -11,7 +11,8 @@ from recipe_club import cli
 from recipe_club.history import Entry, History
 from recipe_club.library import load_library, parse_recipe
 from recipe_club.mailer import MailConfig, MailConfigError, build_message, send_message
-from recipe_club.render import markdown_to_html, render_html, render_text, subject_line
+from recipe_club.render import (markdown_to_html, render_html, render_markdown,
+                                render_text, subject_line)
 from recipe_club.selector import choose_recipe
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -92,6 +93,14 @@ class RenderTests(unittest.TestCase):
         self.assertIn(self.pick.recipe.body.splitlines()[0], text)
         self.assertIn(f"1/{len(self.recipes)} recipes cooked", text)
         self.assertIn("Skills in the bank", text)
+
+    def test_markdown_email_is_valid_markdown(self):
+        md = render_markdown(self.pick, self.history, len(self.recipes))
+        self.assertIn("**Week 2", md)
+        self.assertIn("|---|---|", md)
+        self.assertIn(self.pick.recipe.body.splitlines()[0], md)
+        self.assertIn("<details>", md)
+        self.assertNotIn("<script", md.lower())
 
     def test_html_email_is_self_contained(self):
         html = render_html(self.pick, self.history, len(self.recipes))
@@ -269,15 +278,40 @@ class CliTests(unittest.TestCase):
         self.assertIn("<!doctype html>", target.read_text())
 
     def test_forced_slug(self):
-        code, out, _ = self.run_cli("send", "--dry-run", "--slug", "63-croissants")
+        code, out, _ = self.run_cli("send", "--dry-run", "--slug", "69-croissants")
         self.assertEqual(code, 0)
         self.assertIn("Croissants", out)
 
     def test_missing_mail_config_fails_cleanly(self):
-        code, _, err = self.run_cli("send", "--date", "2026-09-04")
+        with mock.patch.dict("os.environ", {}, clear=True):
+            code, _, err = self.run_cli("send", "--date", "2026-09-04")
         self.assertEqual(code, 2)
         self.assertIn("missing environment variable", err)
-        self.assertIn("--dry-run", err)
+        self.assertIn("--no-email", err)
+
+    def test_no_email_delivers_without_smtp(self):
+        path = Path(self.tmp) / "history.json"
+        body = Path(self.tmp) / "out" / "body.md"
+        subject = Path(self.tmp) / "out" / "subject.txt"
+        with mock.patch.dict("os.environ", {}, clear=True), \
+                mock.patch("recipe_club.cli.send_message") as sender:
+            code, out, _ = self.run_cli("send", "--no-email", "--date", "2026-09-04",
+                                        "--markdown-out", str(body),
+                                        "--subject-out", str(subject), history=path)
+        self.assertEqual(code, 0)
+        sender.assert_not_called()
+        self.assertIn("no email sent", out)
+        # the recipe is still delivered as files, and still logged
+        self.assertIn("Week 1", subject.read_text())
+        self.assertIn("**Week 1", body.read_text())
+        self.assertEqual(History.load(path).count, 1)
+
+    def test_no_email_still_respects_no_record(self):
+        path = Path(self.tmp) / "history.json"
+        with mock.patch.dict("os.environ", {}, clear=True):
+            code, _, _ = self.run_cli("send", "--no-email", "--no-record", history=path)
+        self.assertEqual(code, 0)
+        self.assertFalse(path.exists())
 
     def test_bad_recipe_directory(self):
         out, err = io.StringIO(), io.StringIO()

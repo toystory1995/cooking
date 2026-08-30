@@ -1,4 +1,16 @@
 {
   "schema": 1,
-  "entries": []
+  "entries": [
+    {
+      "date": "2026-08-30",
+      "slug": "06-vinaigrette-and-composed-salad",
+      "title": "Vinaigrette and a Composed Salad",
+      "level": 1,
+      "skills": [
+        "emulsification",
+        "balancing acidity",
+        "knife work"
+      ]
+    }
+  ]
 }

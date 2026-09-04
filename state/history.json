@@ -22,6 +22,17 @@
         "fish quality judgement",
         "dicing to size"
       ]
+    },
+    {
+      "date": "2026-09-04",
+      "slug": "13-kimchi",
+      "title": "Baechu Kimchi",
+      "level": 1,
+      "skills": [
+        "brining",
+        "lacto-fermentation",
+        "judging ferment by taste"
+      ]
     }
   ]
 }

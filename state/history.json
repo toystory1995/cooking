@@ -33,6 +33,18 @@
         "lacto-fermentation",
         "judging ferment by taste"
       ]
+    },
+    {
+      "date": "2026-09-11",
+      "slug": "10-roast-chicken-and-root-vegetables",
+      "title": "Roast Chicken over Root Vegetables",
+      "level": 1,
+      "skills": [
+        "roasting",
+        "trussing",
+        "temperature probing",
+        "carving"
+      ]
     }
   ]
 }

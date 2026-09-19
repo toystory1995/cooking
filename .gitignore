@@ -4,3 +4,6 @@ __pycache__/
 preview.html
 .venv/
 out/
+
+# built by `send_recipe.py site`
+site/

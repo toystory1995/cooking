@@ -12,10 +12,12 @@ from .library import MAX_LEVEL, VALID_TRACKS, RecipeError, all_skills, load_libr
 from .mailer import MailConfig, MailConfigError, build_message, send_message
 from .render import render_html, render_markdown, render_text, subject_line
 from .selector import Pick, choose_recipe, pace_for, season_for, target_level
+from .site import build_site
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RECIPES = ROOT / "recipes"
 DEFAULT_HISTORY = ROOT / "state" / "history.json"
+DEFAULT_SITE_OUT = ROOT / "site"
 
 
 def _parse_date(value: str) -> date:
@@ -76,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
                       help="how many weeks to project (default 12)")
     plan.add_argument("--date", type=_parse_date, default=None, metavar="YYYY-MM-DD",
                       help="start from this date instead of today")
+
+    site = sub.add_parser("site", parents=[common],
+                          help="build a static website from the library")
+    site.add_argument("--out", type=Path, default=DEFAULT_SITE_OUT, metavar="DIR",
+                      help="where to write the site (default: ./site)")
+
     sub.add_parser("stats", parents=[common], help="show progress through the library")
     sub.add_parser("validate", parents=[common], help="parse every recipe and report problems")
 
@@ -84,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # Options that take a value, so we can tell a command name from an option's argument.
 _VALUE_OPTIONS = {"--recipes", "--history", "--date", "--slug", "--html-out", "--track",
-                  "--markdown-out", "--subject-out"}
+                  "--markdown-out", "--subject-out", "--out"}
 
 
 def inject_default_command(argv: list[str]) -> list[str]:
@@ -265,6 +273,14 @@ def cmd_stats(args, recipes, history) -> int:
     return 0
 
 
+def cmd_site(args, recipes, history) -> int:
+    written = build_site(recipes, history, args.out)
+    pages = sum(1 for path in written if path.suffix == ".html")
+    print(f"{pages} pages written to {args.out}")
+    print(f"open {args.out / 'index.html'}")
+    return 0
+
+
 def cmd_validate(args, recipes, history) -> int:
     by_level: dict[int, int] = {}
     for recipe in recipes:
@@ -284,6 +300,7 @@ COMMANDS = {
     "show": cmd_show,
     "list": cmd_list,
     "plan": cmd_plan,
+    "site": cmd_site,
     "stats": cmd_stats,
     "validate": cmd_validate,
 }

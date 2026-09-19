@@ -16,6 +16,7 @@ python send_recipe.py list                    # the library, ✓ marks what you'
 python send_recipe.py list --track dumplings  # one discipline
 python send_recipe.py stats                   # progress, level, tracks, skills
 python send_recipe.py show 69-croissants
+python send_recipe.py site                    # build the website into ./site
 ```
 
 ## Delivery — and you may not need SMTP at all
@@ -139,6 +140,41 @@ it gets committed after each send:
 If you cook something on your own, add an entry by hand — the picker will take it into
 account. To restart the whole course, empty `entries`.
 
+## The website
+
+`python send_recipe.py site` renders the whole library as flat HTML into `./site`:
+
+```
+site/
+  index.html             the library — search, filter by discipline, level, season, status
+  log.html               what you have cooked, newest first
+  recipes/<slug>.html    one page per recipe
+  assets/                one stylesheet, one small script
+```
+
+Open `site/index.html` and it works straight off the disk — no server, no build step, no
+dependencies, same as the rest of this repo. The filters are plain JavaScript over the
+cards, and they live in the URL, so `index.html?track=pastry&level=4` is a link you can
+keep. Recipes you have cooked are ticked, and both the progress bar and the log come from
+`state/history.json`, so the site tells the truth about where you are.
+
+The output is gitignored — it is generated, not source. Point `--out` somewhere else if
+you want it elsewhere:
+
+```bash
+python send_recipe.py site --out /tmp/preview
+```
+
+### Publishing it on GitHub Pages
+
+`.github/workflows/pages.yml` builds and deploys the site on every push to `main` — which
+includes the commit the Friday job makes to the cooking log, so the published progress bar
+keeps up on its own.
+
+One switch to flip first: **Settings → Pages → Source → GitHub Actions**. Then the site
+lands at `https://<you>.github.io/cooking/`. Use **Run workflow** on the Actions tab to
+deploy it the first time without waiting for a push.
+
 ## Scheduling it
 
 ### GitHub Actions (nothing of yours has to be switched on)
@@ -219,10 +255,12 @@ recipe_club/
   selector.py            which recipe this week, and why
   history.py             the cooking log
   render.py              plain-text and HTML emails
+  site.py                the static website
   mailer.py              SMTP delivery
   cli.py                 the command line
 send_recipe.py           entry point
 state/history.json       what you have cooked
+site/                    the generated website (gitignored)
 tests/                   unittest suite, no dependencies
 ```
 
@@ -232,8 +270,9 @@ tests/                   unittest suite, no dependencies
 python -m unittest discover -s tests -t . -q
 ```
 
-The 100 cases cover the parser, the selection rules (the level ceiling, track rotation, no
-repeats, capstone last), the log, the renderers, the SMTP flow and every CLI subcommand.
+The 129 cases cover the parser, the selection rules (the level ceiling, track rotation, no
+repeats, capstone last), the log, the renderers, the site builder, the SMTP flow and every
+CLI subcommand.
 They also re-parse and re-render every shipped recipe and assert the library stays
 balanced — no track over 15%, at least fifteen non-European cuisines — so both a broken
 recipe file and a lopsided library fail the build rather than the Friday email.

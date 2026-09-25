@@ -57,6 +57,18 @@
         "infusing cream",
         "turning out cleanly"
       ]
+    },
+    {
+      "date": "2026-09-25",
+      "slug": "02-knife-skills-drill",
+      "title": "The Knife Skills Drill",
+      "level": 1,
+      "skills": [
+        "brunoise and julienne",
+        "claw grip",
+        "sharpening and steeling",
+        "consistency of cut"
+      ]
     }
   ]
 }

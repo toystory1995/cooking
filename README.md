@@ -146,7 +146,7 @@ account. To restart the whole course, empty `entries`.
 
 ```
 site/
-  index.html             the library — search, filter by discipline, level, season, status
+  index.html             the library — search, filter by discipline, cuisine, level, season, status
   log.html               what you have cooked, newest first
   recipes/<slug>.html    one page per recipe
   assets/                one stylesheet, one small script

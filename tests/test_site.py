@@ -111,9 +111,16 @@ class IndexTests(unittest.TestCase):
 
     def test_cards_carry_the_data_the_filters_read(self):
         self.assertIn('data-track="dumplings"', self.html)
+        self.assertIn('data-cuisine="Korean"', self.html)
         self.assertIn('data-level="5"', self.html)
         self.assertIn('data-cooked="yes"', self.html)
         self.assertIn('data-cooked="no"', self.html)
+
+    def test_every_cuisine_in_the_library_is_offered_once(self):
+        options = self.html[self.html.index('<select id="cuisine"'):]
+        options = options[:options.index("</select>")]
+        for cuisine in {recipe.cuisine for recipe in self.recipes}:
+            self.assertEqual(options.count(f'value="{cuisine}"'), 1, cuisine)
 
     def test_search_index_includes_skills_and_cuisine(self):
         card = [line for line in self.html.splitlines()
@@ -138,6 +145,12 @@ class RecipePageTests(unittest.TestCase):
         self.assertIn("Escoffier", page)
         self.assertIn("<li>One thing</li>", page)
         self.assertIn('href="../index.html?track=pasta"', page)
+        self.assertIn('href="../index.html?cuisine=Italian"', page)
+
+    def test_a_cuisine_with_a_space_survives_the_link_back_to_the_library(self):
+        page = render_recipe_page(sample(cuisine="Modern European"),
+                                  History.empty(), (None, None))
+        self.assertIn('href="../index.html?cuisine=Modern%20European"', page)
 
     def test_the_lede_is_not_repeated_in_the_body(self):
         page = render_recipe_page(sample(), History.empty(), (None, None))

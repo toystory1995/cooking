@@ -91,6 +91,17 @@
         "low-heat cooking",
         "seasoning by taste"
       ]
+    },
+    {
+      "date": "2026-10-16",
+      "slug": "07-aglio-e-olio",
+      "title": "Spaghetti Aglio e Olio",
+      "level": 1,
+      "skills": [
+        "pasta emulsification",
+        "garlic control",
+        "timing"
+      ]
     }
   ]
 }

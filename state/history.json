@@ -102,6 +102,18 @@
         "garlic control",
         "timing"
       ]
+    },
+    {
+      "date": "2026-10-23",
+      "slug": "04-break-down-a-chicken",
+      "title": "Break Down a Whole Chicken",
+      "level": 1,
+      "skills": [
+        "jointing poultry",
+        "boning a thigh",
+        "supreme trimming",
+        "using the whole bird"
+      ]
     }
   ]
 }

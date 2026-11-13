@@ -138,6 +138,18 @@
         "describing flavour",
         "correcting a dish"
       ]
+    },
+    {
+      "date": "2026-11-13",
+      "slug": "05-pan-seared-chicken-with-pan-sauce",
+      "title": "Pan-Seared Chicken Thighs with a Pan Sauce",
+      "level": 1,
+      "skills": [
+        "pan-searing",
+        "deglazing",
+        "pan sauce",
+        "resting protein"
+      ]
     }
   ]
 }
